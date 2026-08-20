@@ -21,6 +21,7 @@ from process import get_dataset
 _args_sig = inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
 _USE_NEW_SAMPLING = "train_sampling_strategy" in _args_sig
 _USE_NEW_EVAL = "eval_strategy" in _args_sig
+_USE_REPORT_TO = "report_to" in _args_sig
 _trainer_sig = inspect.signature(Seq2SeqTrainer.__init__).parameters
 _USE_PROCESSING_CLASS = "processing_class" in _trainer_sig
 # 超参数
@@ -109,6 +110,14 @@ def main():
     # （dataloader_prefetch_factor 是较新参数，旧版本不存在时跳过）
     if "dataloader_prefetch_factor" in _args_sig:
         kwargs["dataloader_prefetch_factor"] = 4
+
+    # TensorBoard 日志：
+    #  - 新版本用 report_to=["tensorboard"]，日志写到 output_dir/runs/<run_name>/
+    #  - 旧版本用 logging_dir 显式指定日志目录
+    if _USE_REPORT_TO:
+        kwargs["report_to"] = ["tensorboard"]
+    else:
+        kwargs["logging_dir"] = str(config.LOG_DIR / "t5-json")
 
     # 按长度分组的参数：新版本用 train_sampling_strategy，旧版本用 group_by_length
     if _USE_NEW_SAMPLING:
