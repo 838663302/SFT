@@ -78,14 +78,18 @@ def main():
     #  - 按长度分组 / 评估策略参数在不同 transformers 版本名字不同，运行时会自动适配。
 
     # 基础参数（所有版本通用的稳定参数）
+    # 显存说明：T4 单卡实际可用约 14.5GB。长序列(≤512)下 batch 过大、激活值太多会 OOM，
+    # 因此降低每卡 batch 并用 gradient_accumulation_steps 补偿全局 batch，同时开启
+    # gradient_checkpointing 以时间换显存（可省 60% 以上显存）。
     kwargs = dict(
         output_dir=str(config.CHECKPOINT_DIR / "t5-json"),
         run_name="t5-json",
         num_train_epochs=3,
-        per_device_train_batch_size=8,        # 每卡 8，双卡全局 16
-        per_device_eval_batch_size=8,         # 每卡 8
-        gradient_accumulation_steps=1,        # 双卡全局 batch 已够大，无需累积
-        dataloader_num_workers=2,             # 加速数据加载
+        per_device_train_batch_size=2,        # 每卡 2（长序列下显存安全），双卡全局 4
+        per_device_eval_batch_size=2,         # 每卡 2
+        gradient_accumulation_steps=8,        # 累积后全局 batch = 2×2×8 = 32，训练稳定
+        dataloader_num_workers=4,             # 多 worker 并行预取数据，缓解 CPU 取数压力
+        # dataloader_pin_memory 默认 True（锁页内存加速 GPU 拷贝）
         fp16=True,                            # T4 用 FP16 混合精度加速（Tensor Core）
         save_strategy="epoch",
         predict_with_generate=True,
@@ -98,6 +102,8 @@ def main():
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
     )
+    # 梯度检查点（显著降低显存；属于长期稳定参数，新旧版本均存在）
+    kwargs["gradient_checkpointing"] = True
 
     # 按长度分组的参数：新版本用 train_sampling_strategy，旧版本用 group_by_length
     if _USE_NEW_SAMPLING:
@@ -121,7 +127,7 @@ def main():
     trainer_kwargs = dict(
         model=model,
         args=training_args,
-        train_dataset=get_dataset(tokenizer, is_train=True, max_samples=10000),
+        train_dataset=get_dataset(tokenizer, is_train=True),  # 全量训练数据
         eval_dataset=get_dataset(tokenizer, is_train=False),
         data_collator=data_collator,
         callbacks=[GPUUsageCallback()],
