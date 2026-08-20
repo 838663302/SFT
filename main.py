@@ -4,9 +4,11 @@ from transformers import (
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
     DataCollatorForSeq2Seq,
+    TrainerCallback,
 )
 from datasets import load_from_disk
 import config
+import subprocess
 from process import get_dataset
 # 超参数
 MODEL_NAME = "google/flan-t5-base"
@@ -16,26 +18,35 @@ MAX_TARGET_LENGTH = 256
 class GPUUsageCallback(TrainerCallback):
     def on_epoch_end(self, args, state, control, **kwargs):
         print("\n========== GPU Usage ==========")
-
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=index,utilization.gpu,memory.used,memory.total",
-                "--format=csv,noheader,nounits"
-            ],
-            capture_output=True,
-            text=True
-        )
-
-        for line in result.stdout.strip().split("\n"):
-            gpu_id, gpu_util, mem_used, mem_total = line.split(",")
-
-            print(
-                f"GPU {gpu_id.strip()} | "
-                f"GPU Util: {gpu_util.strip()}% | "
-                f"Memory: {mem_used.strip()} / {mem_total.strip()} MiB"
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=index,utilization.gpu,memory.used,memory.total",
+                    "--format=csv,noheader,nounits"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            print("nvidia-smi 不可用，跳过 GPU 监控")
+            print("===============================\n")
+            return
 
+        lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+        if not lines:
+            print("未检测到 GPU 信息")
+        else:
+            for line in lines:
+                parts = line.split(",")
+                if len(parts) >= 4:
+                    gpu_id, gpu_util, mem_used, mem_total = parts
+                    print(
+                        f"GPU {gpu_id.strip()} | "
+                        f"GPU Util: {gpu_util.strip()}% | "
+                        f"Memory: {mem_used.strip()} / {mem_total.strip()} MiB"
+                    )
         print("===============================\n")
 
 def main():
