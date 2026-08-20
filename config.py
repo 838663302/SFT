@@ -11,6 +11,8 @@ if IS_KAGGLE:
     DATA_DIR = Path('/kaggle/input/datasets/xiaonanhaiaichixigua/extractjson/data')
     # 输出目录（必须写到 /kaggle/working，可写）
     OUTPUT_DIR = Path('/kaggle/working')
+    # 预处理后数据保存目录（process.py 生成）
+    PROCESSED_DIR = DATA_DIR / "data" / "processed"
 else:
     # ===== 线下（本地）=====
     BASE_DIR = Path(__file__).parent.resolve()
@@ -18,6 +20,8 @@ else:
     DATA_DIR = BASE_DIR / "data"
     # 输出目录（项目根目录，可写）
     OUTPUT_DIR = BASE_DIR
+    # 预处理后数据保存目录（process.py 生成）
+    PROCESSED_DIR = DATA_DIR / "data" / "processed"
 
 # ============================================================
 # 输入数据文件（原始 parquet）
@@ -30,8 +34,7 @@ DATA_FILE = DATA_DIR / "data.csv"
 # ============================================================
 # 输出目录（processed / checkpoints / log）
 # ============================================================
-# 预处理后数据保存目录（process.py 生成）
-PROCESSED_DIR = OUTPUT_DIR / "data" / "processed"
+
 # 检查点保存目录
 CHECKPOINT_DIR = OUTPUT_DIR / "checkpoints"
 # 日志目录
