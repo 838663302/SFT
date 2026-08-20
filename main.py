@@ -78,18 +78,18 @@ def main():
     #  - 按长度分组 / 评估策略参数在不同 transformers 版本名字不同，运行时会自动适配。
 
     # 基础参数（所有版本通用的稳定参数）
-    # 显存说明：T4 单卡实际可用约 14.5GB。长序列(≤512)下 batch 过大、激活值太多会 OOM，
-    # 因此降低每卡 batch 并用 gradient_accumulation_steps 补偿全局 batch，同时开启
-    # gradient_checkpointing 以时间换显存（可省 60% 以上显存）。
+    # 显存说明：T4 单卡实际可用约 14.5GB，已开启 gradient_checkpointing 省显存，
+    # 因此每卡 batch 可适度加大以提升 GPU 利用率（GPU 未跑满时可上调）。
+    # 全局 batch = per_device_train_batch_size × GPU数 × gradient_accumulation_steps = 4×2×4 = 32
     kwargs = dict(
         output_dir=str(config.CHECKPOINT_DIR / "t5-json"),
         run_name="t5-json",
         num_train_epochs=3,
-        per_device_train_batch_size=2,        # 每卡 2（长序列下显存安全），双卡全局 4
-        per_device_eval_batch_size=2,         # 每卡 2
-        gradient_accumulation_steps=8,        # 累积后全局 batch = 2×2×8 = 32，训练稳定
+        per_device_train_batch_size=4,        # 每卡 4，双卡全局 8（GPU 未跑满，可上调）
+        per_device_eval_batch_size=4,         # 每卡 4
+        gradient_accumulation_steps=4,        # 累积后全局 batch = 4×2×4 = 32，训练稳定
         dataloader_num_workers=4,             # 多 worker 并行预取数据，缓解 CPU 取数压力
-        # dataloader_pin_memory 默认 True（锁页内存加速 GPU 拷贝）
+        dataloader_pin_memory=True,           # 锁页内存，加速 CPU→GPU 拷贝
         fp16=True,                            # T4 用 FP16 混合精度加速（Tensor Core）
         save_strategy="epoch",
         predict_with_generate=True,
@@ -104,6 +104,11 @@ def main():
     )
     # 梯度检查点（显著降低显存；属于长期稳定参数，新旧版本均存在）
     kwargs["gradient_checkpointing"] = True
+
+    # 缓解 CPU 瓶颈：每个 worker 预取更多 batch，减少 GPU 等待数据的时间
+    # （dataloader_prefetch_factor 是较新参数，旧版本不存在时跳过）
+    if "dataloader_prefetch_factor" in _args_sig:
+        kwargs["dataloader_prefetch_factor"] = 4
 
     # 按长度分组的参数：新版本用 train_sampling_strategy，旧版本用 group_by_length
     if _USE_NEW_SAMPLING:
