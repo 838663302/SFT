@@ -21,7 +21,7 @@ else:
     # 输出目录（项目根目录，可写）
     OUTPUT_DIR = BASE_DIR
     # 预处理后数据保存目录（process.py 生成）
-    PROCESSED_DIR = DATA_DIR / "data" / "processed"
+    PROCESSED_DIR = DATA_DIR / "processed"
 
 # ============================================================
 # 输入数据文件（原始 parquet）
