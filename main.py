@@ -61,6 +61,13 @@ class GPUUsageCallback(TrainerCallback):
         print("===============================\n")
 
 def main():
+    # 0. 确保 processed 数据已生成（Kaggle 上首次运行时自动执行预处理）
+    if not (config.PROCESSED_DIR / "train").exists():
+        print("未找到 processed 数据，先执行 process() ...")
+        from process import process
+        process()
+        print("process() 完成。")
+
     # 1. 加载模型与 tokenizer
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME)
