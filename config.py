@@ -3,7 +3,7 @@ from pathlib import Path
 # Kaggle 环境检测：输入数据在 /kaggle/input（只读），输出必须写到 /kaggle/working
 if Path('/kaggle/input').exists():
     # 数据集实际挂载路径（线上实测）
-    BASE_DIR = Path('/kaggle/input/datasets/xiaonanhaiaichixigua/inputmethoddata')
+    BASE_DIR = Path('/kaggle/input/datasets/xiaonanhaiaichixigua/extractjson')
     OUTPUT_DIR = Path('/kaggle/working')
 else:
     BASE_DIR = Path(__file__).parent.resolve()
