@@ -8,8 +8,19 @@ from transformers import (
 )
 from datasets import load_from_disk
 import config
+import inspect
 import subprocess
 from process import get_dataset
+
+# 兼容不同 transformers 版本的参数差异（新版本约 >=4.46，旧版本更早）：
+#  - 按长度分组：新版本 train_sampling_strategy / 旧版本 group_by_length
+#  - 评估策略：新版本 eval_strategy / 旧版本 evaluation_strategy
+#  - Trainer 的分词器参数：新版本 processing_class / 旧版本 tokenizer
+_args_sig = inspect.signature(Seq2SeqTrainingArguments.__init__).parameters
+_USE_NEW_SAMPLING = "train_sampling_strategy" in _args_sig
+_USE_NEW_EVAL = "eval_strategy" in _args_sig
+_trainer_sig = inspect.signature(Seq2SeqTrainer.__init__).parameters
+_USE_PROCESSING_CLASS = "processing_class" in _trainer_sig
 # 超参数
 MODEL_NAME = "google/flan-t5-base"
 MAX_INPUT_LENGTH = 512
@@ -62,7 +73,10 @@ def main():
     #    * FP16 混合精度 → 开启（fp16=True），速度约提升 2 倍。
     #    * BF16 不支持（Turing 无 BF16 Tensor Core），故用 fp16 而非 bf16。
     #    * 双精度 FP64 在 T4 上被严重阉割且训练无用，绝不使用。
-    training_args = Seq2SeqTrainingArguments(
+    #  - 按长度分组 / 评估策略参数在不同 transformers 版本名字不同，运行时会自动适配。
+
+    # 基础参数（所有版本通用的稳定参数）
+    kwargs = dict(
         output_dir=str(config.CHECKPOINT_DIR / "t5-json"),
         run_name="t5-json",
         num_train_epochs=3,
@@ -71,9 +85,6 @@ def main():
         gradient_accumulation_steps=1,        # 双卡全局 batch 已够大，无需累积
         dataloader_num_workers=2,             # 加速数据加载
         fp16=True,                            # T4 用 FP16 混合精度加速（Tensor Core）
-        train_sampling_strategy="group_by_length",
-        length_column_name="length",
-        eval_strategy="epoch",
         save_strategy="epoch",
         predict_with_generate=True,
         generation_max_length=MAX_TARGET_LENGTH,
@@ -86,19 +97,38 @@ def main():
         metric_for_best_model="eval_loss",
     )
 
+    # 按长度分组的参数：新版本用 train_sampling_strategy，旧版本用 group_by_length
+    if _USE_NEW_SAMPLING:
+        kwargs["train_sampling_strategy"] = "group_by_length"
+        kwargs["length_column_name"] = "length"
+    else:
+        kwargs["group_by_length"] = True
+
+    # 评估策略参数：新版本用 eval_strategy，旧版本用 evaluation_strategy
+    if _USE_NEW_EVAL:
+        kwargs["eval_strategy"] = "epoch"
+    else:
+        kwargs["evaluation_strategy"] = "epoch"
+
+    training_args = Seq2SeqTrainingArguments(**kwargs)
+
     # 4. 数据收集器
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model, padding=True, label_pad_token_id=model.config.pad_token_id, return_tensors="pt")
 
-    # 5. Trainer
-    trainer = Seq2SeqTrainer(
+    # 5. Trainer（分词器参数名随版本自适应：新版本 processing_class，旧版本 tokenizer）
+    trainer_kwargs = dict(
         model=model,
         args=training_args,
         train_dataset=get_dataset(tokenizer, is_train=True, max_samples=10000),
         eval_dataset=get_dataset(tokenizer, is_train=False),
-        processing_class=tokenizer,
         data_collator=data_collator,
-        callbacks=[GPUUsageCallback()]
+        callbacks=[GPUUsageCallback()],
     )
+    if _USE_PROCESSING_CLASS:
+        trainer_kwargs["processing_class"] = tokenizer
+    else:
+        trainer_kwargs["tokenizer"] = tokenizer
+    trainer = Seq2SeqTrainer(**trainer_kwargs)
 
     # 6. 训练并保存
     trainer.train()
