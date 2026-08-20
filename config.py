@@ -12,7 +12,7 @@ if IS_KAGGLE:
     # 输出目录（必须写到 /kaggle/working，可写）
     OUTPUT_DIR = Path('/kaggle/working')
     # 预处理后数据保存目录（process.py 生成）
-    PROCESSED_DIR = DATA_DIR / "data" / "processed"
+    PROCESSED_DIR = DATA_DIR / "processed"
 else:
     # ===== 线下（本地）=====
     BASE_DIR = Path(__file__).parent.resolve()
