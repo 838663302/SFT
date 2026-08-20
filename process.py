@@ -62,17 +62,21 @@ def get_dataset(tokenizer, is_train=True, max_samples=None):
     # 关键：map 的缓存/临时文件默认写到源数据所在目录，而 Kaggle 上源数据在只读的
     # /kaggle/input 下，会报 "Read-only file system"。因此必须显式指定 cache_file_name
     # 写到可写目录（config.CACHE_DIR，Kaggle 上为 /kaggle/working/.cache）。
-    # 同时 load_from_cache_file=False 强制每次重新计算，避免复用旧缓存导致数据不一致。
+    # 首次运行生成缓存后，后续直接复用缓存，避免每次启动都重新全量分词拖慢训练。
     cache_dir = config.CACHE_DIR / "map_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / f"{split}.arrow"
-    dataset = dataset.map(
-        lambda x: preprocess(x, tokenizer),
-        batched=True,
-        remove_columns=dataset.column_names,
-        cache_file_name=str(cache_file),
-        load_from_cache_file=False,
-    )
+    if cache_file.exists():
+        print(f"复用 map 缓存: {cache_file}")
+        from datasets import Dataset
+        dataset = Dataset.from_file(str(cache_file))
+    else:
+        dataset = dataset.map(
+            lambda x: preprocess(x, tokenizer),
+            batched=True,
+            remove_columns=dataset.column_names,
+            cache_file_name=str(cache_file),
+        )
 
     # 可选：抽样（用于快速测试）。max_samples 为 None 时返回全量数据
     if max_samples is not None:
