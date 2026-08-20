@@ -1,3 +1,8 @@
+# 注意：config 必须在 transformers/datasets 之前导入，确保缓存目录环境变量先生效
+import config
+import inspect
+import subprocess
+
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
@@ -7,9 +12,6 @@ from transformers import (
     TrainerCallback,
 )
 from datasets import load_from_disk
-import config
-import inspect
-import subprocess
 from process import get_dataset
 
 # 兼容不同 transformers 版本的参数差异（新版本约 >=4.46，旧版本更早）：

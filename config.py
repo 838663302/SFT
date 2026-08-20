@@ -1,9 +1,22 @@
+import os
 from pathlib import Path
 
 # ============================================================
 # 环境判断：线上（Kaggle） / 线下（本地）
 # ============================================================
 IS_KAGGLE = Path('/kaggle/input').exists()
+
+# 缓存根目录：必须可写（Kaggle 默认 ~/.cache 可能不可写，显式指定到可写位置）
+CACHE_DIR = Path('/kaggle/working/.cache') if IS_KAGGLE else Path(__file__).parent.resolve() / ".cache"
+
+# 设置 Hugging Face 相关缓存（必须在导入 transformers/datasets 前生效）
+os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
+os.environ["HF_DATASETS_CACHE"] = str(CACHE_DIR / "huggingface" / "datasets")
+os.environ["TRANSFORMERS_CACHE"] = str(CACHE_DIR / "huggingface" / "transformers")
+os.environ["HF_HUB_CACHE"] = str(CACHE_DIR / "huggingface" / "hub")
+
+# 确保缓存目录存在且可写（否则 datasets.map() 写临时文件会失败）
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 if IS_KAGGLE:
     # ===== 线上（Kaggle）=====

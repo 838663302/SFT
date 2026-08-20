@@ -1,5 +1,7 @@
-from datasets import load_dataset, load_from_disk
+# 注意：config 必须在 transformers/datasets 之前导入，确保缓存目录环境变量先生效
 import config
+
+from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 
 # 需要过滤掉的字段（邮件数据专用）
