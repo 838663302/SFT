@@ -213,6 +213,25 @@ def main():
     # trainer.train()
     # trainer.save_model(str(config.CHECKPOINT_DIR / "t5-json-final"))
     # tokenizer.save_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
+    model = trainer.model
+    model.eval()
+
+    with torch.no_grad():
+        outputs = model(
+            input_ids=batch["input_ids"],
+            attention_mask=batch["attention_mask"],
+            labels=batch["labels"],
+        )
+
+    print("========== MODEL FORWARD DEBUG ==========")
+    print("rank:", os.environ.get("RANK"))
+    print("model device:", next(model.parameters()).device)
+    print("model dtype:", next(model.parameters()).dtype)
+    print("loss:", outputs.loss)
+    print("loss is nan:", torch.isnan(outputs.loss).item())
+    print("loss is inf:", torch.isinf(outputs.loss).item())
+    print("logits shape:", outputs.logits.shape)
+    print("==========================================")
 
 
 if __name__ == "__main__":
