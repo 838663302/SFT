@@ -152,7 +152,7 @@ def main():
     trainer_kwargs = dict(
         model=model,
         args=training_args,
-        train_dataset=get_dataset(tokenizer, is_train=True, 1000),  # 全量训练数据
+        train_dataset=get_dataset(tokenizer, is_train=True, max_samples=1000),
         eval_dataset=get_dataset(tokenizer, is_train=False),
         data_collator=data_collator,
         callbacks=[GPUUsageCallback()],
