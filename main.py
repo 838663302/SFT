@@ -17,14 +17,6 @@ from process import get_dataset
 import os
 import torch
 
-# print(
-#     f"[DEBUG] "
-#     f"RANK={os.environ.get('RANK')} "
-#     f"LOCAL_RANK={os.environ.get('LOCAL_RANK')} "
-#     f"WORLD_SIZE={os.environ.get('WORLD_SIZE')} "
-#     f"CUDA={torch.cuda.current_device()}"
-# )
-
 # 兼容不同 transformers 版本的参数差异（新版本约 >=4.46，旧版本更早）：
 #  - 按长度分组：新版本 train_sampling_strategy / 旧版本 group_by_length
 #  - 评估策略：新版本 eval_strategy / 旧版本 evaluation_strategy
@@ -37,7 +29,7 @@ _trainer_sig = inspect.signature(Seq2SeqTrainer.__init__).parameters
 _USE_PROCESSING_CLASS = "processing_class" in _trainer_sig
 # 超参数
 MODEL_NAME = "google/flan-t5-base"
-MAX_INPUT_LENGTH = 512
+
 MAX_TARGET_LENGTH = 256
 
 class GPUUsageCallback(TrainerCallback):
@@ -82,11 +74,9 @@ def main():
     # 3. 训练参数（针对 Kaggle 双 GPU 调整）
     # 说明：
     #  - Trainer 会自动检测多卡并用 DDP 分布式训练，无需额外代码。
-    #  - per_device_* 是"每张卡"的 batch size，双卡全局 batch = 8 × 2 = 16。
-    #  - Kaggle GPU 为 T4（Turing 架构，支持 FP16 Tensor Core 加速）：
-    #    * FP16 混合精度 → 开启（fp16=True），速度约提升 2 倍。
-    #    * BF16 不支持（Turing 无 BF16 Tensor Core），故用 fp16 而非 bf16。
-    #    * 双精度 FP64 在 T4 上被严重阉割且训练无用，绝不使用。
+    #  - per_device_* 是"每张卡"的 batch size，双卡全局 batch = 4 × 2 = 8。
+    #  - 混合精度：fp16 在 T5 训练时会导致 loss 下溢为 0、grad_norm 为 nan（已实测），
+    #    因此使用 fp16=False（fp32）。T4 虽支持 FP16 Tensor Core，但稳定性优先。
     #  - 按长度分组 / 评估策略参数在不同 transformers 版本名字不同，运行时会自动适配。
 
     # 基础参数（所有版本通用的稳定参数）
@@ -102,7 +92,8 @@ def main():
         gradient_accumulation_steps=4,        # 累积后全局 batch = 4×2×4 = 32，训练稳定
         dataloader_num_workers=4,             # 多 worker 并行预取数据，缓解 CPU 取数压力
         dataloader_pin_memory=True,           # 锁页内存，加速 CPU→GPU 拷贝
-        fp16=False,                            # T4 用 FP16 混合精度加速（Tensor Core）
+        fp16=False,                            # fp16 会导致 T5 loss 下溢为 0，使用 fp32 训练
+        max_grad_norm=1.0,
         save_strategy="epoch",
         predict_with_generate=True,
         generation_max_length=MAX_TARGET_LENGTH,
@@ -131,11 +122,11 @@ def main():
         kwargs["logging_dir"] = str(config.LOG_DIR / "t5-json")
 
     # 按长度分组的参数：新版本用 train_sampling_strategy，旧版本用 group_by_length
-    # if _USE_NEW_SAMPLING:
-    #     kwargs["train_sampling_strategy"] = "group_by_length"
-    #     kwargs["length_column_name"] = "length"
-    # else:
-    #     kwargs["group_by_length"] = True
+    if _USE_NEW_SAMPLING:
+        kwargs["train_sampling_strategy"] = "group_by_length"
+        kwargs["length_column_name"] = "length"
+    else:
+        kwargs["group_by_length"] = True
 
     # 评估策略参数：新版本用 eval_strategy，旧版本用 evaluation_strategy
     if _USE_NEW_EVAL:
@@ -161,7 +152,7 @@ def main():
     trainer_kwargs = dict(
         model=model,
         args=training_args,
-        train_dataset=get_dataset(tokenizer, is_train=True),  # 全量训练数据
+        train_dataset=get_dataset(tokenizer, is_train=True, 1000),  # 全量训练数据
         eval_dataset=get_dataset(tokenizer, is_train=False),
         data_collator=data_collator,
         callbacks=[GPUUsageCallback()],
@@ -172,66 +163,13 @@ def main():
         trainer_kwargs["tokenizer"] = tokenizer
     trainer = Seq2SeqTrainer(**trainer_kwargs)
 
-    # train_dataloader = trainer.get_train_dataloader()
 
-    # print("========== DATALOADER DEBUG ==========")
-    # print("rank:", os.environ.get("RANK"))
-    # print("dataloader length:", len(train_dataloader))
-
-    # batch = next(iter(train_dataloader))
-
-    # print("input_ids shape:", batch["input_ids"].shape)
-    # print("labels shape:", batch["labels"].shape)
-
-    # labels = batch["labels"]
-
-    # print("labels:")
-    # print(labels)
-
-    # print(
-    #     "valid label count:",
-    #     (labels != -100).sum().item()
-    # )
-
-    # print(
-    #     "label min:",
-    #     labels[labels != -100].min().item()
-    #     if (labels != -100).any()
-    #     else "NONE"
-    # )
-
-    # print(
-    #     "label max:",
-    #     labels[labels != -100].max().item()
-    #     if (labels != -100).any()
-    #     else "NONE"
-    # )
-
-    # print("======================================")
 
     # 6. 训练并保存
     trainer.train()
     trainer.save_model(str(config.CHECKPOINT_DIR / "t5-json-final"))
     tokenizer.save_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
-    # model = trainer.model
-    # model.eval()
 
-    # with torch.no_grad():
-    #     outputs = model(
-    #         input_ids=batch["input_ids"],
-    #         attention_mask=batch["attention_mask"],
-    #         labels=batch["labels"],
-    #     )
-
-    # print("========== MODEL FORWARD DEBUG ==========")
-    # print("rank:", os.environ.get("RANK"))
-    # print("model device:", next(model.parameters()).device)
-    # print("model dtype:", next(model.parameters()).dtype)
-    # print("loss:", outputs.loss)
-    # print("loss is nan:", torch.isnan(outputs.loss).item())
-    # print("loss is inf:", torch.isinf(outputs.loss).item())
-    # print("logits shape:", outputs.logits.shape)
-    # print("==========================================")
 
 
 if __name__ == "__main__":
