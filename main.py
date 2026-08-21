@@ -135,7 +135,16 @@ def main():
     training_args = Seq2SeqTrainingArguments(**kwargs)
 
     # 4. 数据收集器
-    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model, padding=True, label_pad_token_id=model.config.pad_token_id, return_tensors="pt")
+    # 注意：label_pad_token_id 必须用 -100（PyTorch CrossEntropyLoss 的 ignore_index），
+    # 让标签中的 padding 位置不参与 loss 计算。若用 pad_token_id(0)，在 DDP 下会导致
+    # loss 归零、grad_norm=nan。
+    data_collator = DataCollatorForSeq2Seq(
+        tokenizer=tokenizer,
+        model=model,
+        padding=True,
+        label_pad_token_id=-100,
+        return_tensors="pt",
+    )
 
     # 5. Trainer（分词器参数名随版本自适应：新版本 processing_class，旧版本 tokenizer）
     trainer_kwargs = dict(
