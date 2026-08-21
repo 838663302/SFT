@@ -9,6 +9,11 @@ IS_KAGGLE = Path('/kaggle/input').exists()
 # 缓存根目录：必须可写（Kaggle 默认 ~/.cache 可能不可写，显式指定到可写位置）
 CACHE_DIR = Path('/kaggle/working/.cache') if IS_KAGGLE else Path(__file__).parent.resolve() / ".cache"
 
+# 禁用 xet 下载协议（新版 huggingface_hub 默认启用，走 AWS CDN 分块下载，
+# 在代理环境下常报 403 Forbidden / 连接中断，导致模型权重下载失败）。
+# 回退到传统 HTTP 下载更稳定。必须在导入 huggingface_hub/transformers 前生效。
+os.environ["HF_HUB_DISABLE_XET"] = "1"
+
 # 设置 Hugging Face 相关缓存（必须在导入 transformers/datasets 前生效）
 os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
 os.environ["HF_DATASETS_CACHE"] = str(CACHE_DIR / "huggingface" / "datasets")

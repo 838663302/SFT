@@ -84,7 +84,10 @@ def preprocess(batch, tokenizer):
 
 def get_dataset(tokenizer, is_train=True, max_samples=None):
     split = "train" if is_train else "validation"
-    dataset = load_from_disk(str(config.PROCESSED_DIR / split))[0:20]
+    # 注意：datasets 5.x 中 Dataset[0:20] 切片返回的是普通 dict 而不是 Dataset，
+    # 必须用 .select() 取子集，否则后续 .map() 会报 'dict' object has no attribute 'map'
+    dataset = load_from_disk(str(config.PROCESSED_DIR / split))
+    dataset = dataset.select(range(min(20, len(dataset))))
 
     # 分词（batched=True，返回 input_ids / attention_mask / labels）。
     # 关键：map 的缓存/临时文件默认写到源数据所在目录，而 Kaggle 上源数据在只读的
@@ -99,7 +102,8 @@ def get_dataset(tokenizer, is_train=True, max_samples=None):
     if cache_file.exists():
         print(f"复用 map 缓存: {cache_file}")
         from datasets import Dataset
-        dataset = Dataset.from_file(str(cache_file))[0:20]
+        dataset = Dataset.from_file(str(cache_file))
+        dataset = dataset.select(range(min(20, len(dataset))))
     else:
         dataset = dataset.map(
             lambda x: preprocess(x, tokenizer),
