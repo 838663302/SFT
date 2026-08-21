@@ -1,13 +1,13 @@
 # 注意：config 必须在 transformers/datasets 之前导入，确保缓存目录环境变量先生效
-import config
 
+import config
 import os
 import re
-
 from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 
 # 需要过滤掉的字段（邮件数据专用）
+
 REMOVE_COLUMNS = [
     "ID",
     "COUNTRY_CODE",
@@ -19,6 +19,7 @@ REMOVE_COLUMNS = [
 ]
 
 # JSON 提取数据集的元数据字段
+
 META_COLUMNS = ["topic", "title", "doc_style", "naming_convention", "tone"]
 
 
@@ -26,7 +27,7 @@ def remove_newlines(example):
     # 去掉所有字符串字段中的 \n 以及 \n 后面的空格（对应 fix_json.py 的逻辑）
     for k, v in example.items():
         if isinstance(v, str):
-            example[k] = re.sub(r'\n\s*', '', v)
+            example[k] = re.sub(r"\n\s*", "", v)
     return example
 
 
@@ -46,30 +47,26 @@ def process():
             "validation": str(config.DATA_DIR / "validation-00000-of-00001.parquet"),
         },
     )
-
     # 移除元数据字段（train 和 validation 统一处理）
     for split in dataset:
         dataset[split] = dataset[split].remove_columns(META_COLUMNS)
-
     # 数据清洗：去换行符及后续空格，json 字段双引号转单引号
     for split in dataset:
         dataset[split] = dataset[split].map(remove_newlines).map(replace_quotes)
-
     # 保存为 Arrow 格式（保存整个 DatasetDict，保留 train/validation 结构）
     # Kaggle 上 PROCESSED_DIR 会指向可写的 /kaggle/working/data/processed
     dataset.save_to_disk(str(config.PROCESSED_DIR))
-
     # 同步导出为 JSON 格式（每个 split 一个文件，供人工查看）
     for split in dataset:
         json_path = config.PROCESSED_DIR / f"{split}.json"
         dataset[split].to_json(str(json_path))
         print(f"已保存 {split} 至 {json_path}，共 {len(dataset[split])} 条")
 
+
 def preprocess(batch, tokenizer):
     # batched=True 时 batch 的每个字段是 list，需要逐元素拼接
     inputs = [
-        f"{inst}: {text}"
-        for inst, text in zip(batch["instruction"], batch["text"])
+        f"{inst}: {text}" for inst, text in zip(batch["instruction"], batch["text"])
     ]
     outputs = batch["json"]
     # tokenizer 支持批量：text/text_target 传 list，返回长度一致的结果
@@ -79,44 +76,142 @@ def preprocess(batch, tokenizer):
         padding=False,
         truncation=True,
     )
-    enc['length'] = [len(input) for input in enc["input_ids"]]
+    enc["length"] = [len(input) for input in enc["input_ids"]]
     return enc
 
-def get_dataset(tokenizer, is_train=True, max_samples=None):
-    split = "train" if is_train else "validation"
-    # 注意：datasets 5.x 中 Dataset[0:20] 切片返回的是普通 dict 而不是 Dataset，
-    # 必须用 .select() 取子集，否则后续 .map() 会报 'dict' object has no attribute 'map'
-    dataset = load_from_disk(str(config.PROCESSED_DIR / split))
-    dataset = dataset.select(range(min(20, len(dataset))))
 
-    # 分词（batched=True，返回 input_ids / attention_mask / labels）。
-    # 关键：map 的缓存/临时文件默认写到源数据所在目录，而 Kaggle 上源数据在只读的
-    # /kaggle/input 下，会报 "Read-only file system"。因此必须显式指定 cache_file_name
-    # 写到可写目录（config.CACHE_DIR，Kaggle 上为 /kaggle/working/.cache）。
-    # 首次运行生成缓存后，后续直接复用缓存，避免每次启动都重新全量分词拖慢训练。
+# ============================================================
+# tokenizer/cache 版本
+#
+# 每次修改 tokenizer、增加 token、修改 preprocess 时，
+# 改这个版本号，避免错误复用旧的 Arrow cache。
+# ============================================================
+
+TOKENIZER_VERSION = "flan_t5_python_dict_v1"
+
+
+def get_dataset(tokenizer, is_train=True, max_samples=None):
+    # --------------------------------------------------------
+    # 1. 加载原始 Dataset
+    # --------------------------------------------------------
+    split = "train" if is_train else "validation"
+    dataset = load_from_disk(str(config.PROCESSED_DIR / split))
+    # --------------------------------------------------------
+    # 2. 如果只是测试，先取少量数据
+    #
+    # max_samples=None:
+    #     使用全部数据
+    #
+    # max_samples=20:
+    #     只使用前 20 条
+    # --------------------------------------------------------
+    if max_samples is not None:
+        max_samples = min(max_samples, len(dataset))
+        dataset = dataset.select(range(max_samples))
+    # --------------------------------------------------------
+    # 3. 创建 cache 目录
+    # --------------------------------------------------------
     cache_dir = config.CACHE_DIR / "map_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    # 缓存文件名加上进程 rank，避免 DDP 多进程同时写同一个文件导致损坏
+    # --------------------------------------------------------
+    # 4. DDP rank
+    #
+    # 每个 GPU 使用自己的 cache 文件，
+    # 避免多个进程同时写同一个 Arrow 文件。
+    # --------------------------------------------------------
     local_rank = os.environ.get("LOCAL_RANK", "0")
-    cache_file = cache_dir / f"{split}.arrow.rank{local_rank}"
+    # --------------------------------------------------------
+    # 5. max_samples 也加入 cache 文件名
+    #
+    # 防止：
+    #
+    # 20 条数据的 cache
+    #     ↓
+    # 后面被错误当成全量数据使用
+    # --------------------------------------------------------
+    if max_samples is None:
+        sample_tag = "all"
+    else:
+        sample_tag = f"n{max_samples}"
+    # --------------------------------------------------------
+    # 6. tokenizer 版本加入 cache 文件名
+    #
+    # 你这次新增：
+    #
+    # {
+    # }
+    #
+    # 所以一定不能继续读取以前 tokenizer 产生的 cache。
+    # --------------------------------------------------------
+    cache_file = cache_dir / (
+        f"{split}." f"{TOKENIZER_VERSION}." f"{sample_tag}." f"rank{local_rank}.arrow"
+    )
+    # --------------------------------------------------------
+    # 7. 使用 cache
+    # --------------------------------------------------------
     if cache_file.exists():
         print(f"复用 map 缓存: {cache_file}")
         from datasets import Dataset
+
         dataset = Dataset.from_file(str(cache_file))
-        dataset = dataset.select(range(min(20, len(dataset))))
     else:
+        print(f"重新执行 tokenizer: {split}")
+        print(f"cache: {cache_file}")
         dataset = dataset.map(
             lambda x: preprocess(x, tokenizer),
             batched=True,
+            # 原来的 instruction/text/json 等字段
+            # tokenizer 后不再需要
             remove_columns=dataset.column_names,
             cache_file_name=str(cache_file),
         )
-
-    # 可选：抽样（用于快速测试）。max_samples 为 None 时返回全量数据
-    if max_samples is not None:
-        dataset = dataset.shuffle(seed=42).select(range(max_samples))
-
-    # dataset.set_format("torch")
+    # --------------------------------------------------------
+    # 8. 检查 label
+    #
+    # 特别检查 <unk>
+    #
+    # 你的 tokenizer 已经新增：
+    #
+    # { -> 32100
+    # } -> 32101
+    #
+    # 因此正常情况下 Python dict target
+    # 不应该再出现 <unk>。
+    # --------------------------------------------------------
+    if len(dataset) > 0:
+        sample = dataset[0]
+        labels = sample["labels"]
+        # 去掉 padding 的 -100
+        valid_labels = [x for x in labels if x != -100]
+        decoded_label = tokenizer.decode(valid_labels, skip_special_tokens=False)
+        print("\n========== DATASET CHECK ==========")
+        print("split:", split)
+        print("dataset size:", len(dataset))
+        print("tokenizer size:", len(tokenizer))
+        print("'{' token id:", tokenizer.convert_tokens_to_ids("{"))
+        print("'}' token id:", tokenizer.convert_tokens_to_ids("}"))
+        print("label token count:", len(valid_labels))
+        print("decoded label:")
+        print(decoded_label)
+        print("contains <unk>:", "<unk>" in decoded_label)
+        print("==================================\n")
+        # ----------------------------------------------------
+        # 如果已经确定 Python dict target 不应该包含 <unk>，
+        # 直接阻止训练，避免再次浪费几个小时。
+        # ----------------------------------------------------
+        if "<unk>" in decoded_label:
+            raise RuntimeError(
+                "\n"
+                "检测到 label 中包含 <unk>！\n"
+                "当前 tokenizer 与 tokenized dataset 不匹配，"
+                "请检查 TOKENIZER_VERSION 或清理旧 cache。\n"
+                f"cache_file = {cache_file}\n"
+            )
+    # --------------------------------------------------------
+    # 9. 不需要 set_format("torch")
+    #
+    # DataCollatorForSeq2Seq 会负责生成 Tensor。
+    # --------------------------------------------------------
     return dataset
 
 
