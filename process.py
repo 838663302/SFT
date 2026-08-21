@@ -1,6 +1,8 @@
 # 注意：config 必须在 transformers/datasets 之前导入，确保缓存目录环境变量先生效
 import config
 
+import os
+
 from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
 
@@ -65,7 +67,9 @@ def get_dataset(tokenizer, is_train=True, max_samples=None):
     # 首次运行生成缓存后，后续直接复用缓存，避免每次启动都重新全量分词拖慢训练。
     cache_dir = config.CACHE_DIR / "map_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file = cache_dir / f"{split}.arrow"
+    # 缓存文件名加上进程 rank，避免 DDP 多进程同时写同一个文件导致损坏
+    local_rank = os.environ.get("LOCAL_RANK", "0")
+    cache_file = cache_dir / f"{split}.arrow.rank{local_rank}"
     if cache_file.exists():
         print(f"复用 map 缓存: {cache_file}")
         from datasets import Dataset
