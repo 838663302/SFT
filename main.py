@@ -17,13 +17,13 @@ from process import get_dataset
 import os
 import torch
 
-print(
-    f"[DEBUG] "
-    f"RANK={os.environ.get('RANK')} "
-    f"LOCAL_RANK={os.environ.get('LOCAL_RANK')} "
-    f"WORLD_SIZE={os.environ.get('WORLD_SIZE')} "
-    f"CUDA={torch.cuda.current_device()}"
-)
+# print(
+#     f"[DEBUG] "
+#     f"RANK={os.environ.get('RANK')} "
+#     f"LOCAL_RANK={os.environ.get('LOCAL_RANK')} "
+#     f"WORLD_SIZE={os.environ.get('WORLD_SIZE')} "
+#     f"CUDA={torch.cuda.current_device()}"
+# )
 
 # 兼容不同 transformers 版本的参数差异（新版本约 >=4.46，旧版本更早）：
 #  - 按长度分组：新版本 train_sampling_strategy / 旧版本 group_by_length
@@ -102,7 +102,7 @@ def main():
         gradient_accumulation_steps=4,        # 累积后全局 batch = 4×2×4 = 32，训练稳定
         dataloader_num_workers=4,             # 多 worker 并行预取数据，缓解 CPU 取数压力
         dataloader_pin_memory=True,           # 锁页内存，加速 CPU→GPU 拷贝
-        fp16=True,                            # T4 用 FP16 混合精度加速（Tensor Core）
+        fp16=False,                            # T4 用 FP16 混合精度加速（Tensor Core）
         save_strategy="epoch",
         predict_with_generate=True,
         generation_max_length=MAX_TARGET_LENGTH,
@@ -172,66 +172,66 @@ def main():
         trainer_kwargs["tokenizer"] = tokenizer
     trainer = Seq2SeqTrainer(**trainer_kwargs)
 
-    train_dataloader = trainer.get_train_dataloader()
+    # train_dataloader = trainer.get_train_dataloader()
 
-    print("========== DATALOADER DEBUG ==========")
-    print("rank:", os.environ.get("RANK"))
-    print("dataloader length:", len(train_dataloader))
+    # print("========== DATALOADER DEBUG ==========")
+    # print("rank:", os.environ.get("RANK"))
+    # print("dataloader length:", len(train_dataloader))
 
-    batch = next(iter(train_dataloader))
+    # batch = next(iter(train_dataloader))
 
-    print("input_ids shape:", batch["input_ids"].shape)
-    print("labels shape:", batch["labels"].shape)
+    # print("input_ids shape:", batch["input_ids"].shape)
+    # print("labels shape:", batch["labels"].shape)
 
-    labels = batch["labels"]
+    # labels = batch["labels"]
 
-    print("labels:")
-    print(labels)
+    # print("labels:")
+    # print(labels)
 
-    print(
-        "valid label count:",
-        (labels != -100).sum().item()
-    )
+    # print(
+    #     "valid label count:",
+    #     (labels != -100).sum().item()
+    # )
 
-    print(
-        "label min:",
-        labels[labels != -100].min().item()
-        if (labels != -100).any()
-        else "NONE"
-    )
+    # print(
+    #     "label min:",
+    #     labels[labels != -100].min().item()
+    #     if (labels != -100).any()
+    #     else "NONE"
+    # )
 
-    print(
-        "label max:",
-        labels[labels != -100].max().item()
-        if (labels != -100).any()
-        else "NONE"
-    )
+    # print(
+    #     "label max:",
+    #     labels[labels != -100].max().item()
+    #     if (labels != -100).any()
+    #     else "NONE"
+    # )
 
-    print("======================================")
+    # print("======================================")
 
     # 6. 训练并保存
-    # trainer.train()
-    # trainer.save_model(str(config.CHECKPOINT_DIR / "t5-json-final"))
-    # tokenizer.save_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
-    model = trainer.model
-    model.eval()
+    trainer.train()
+    trainer.save_model(str(config.CHECKPOINT_DIR / "t5-json-final"))
+    tokenizer.save_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
+    # model = trainer.model
+    # model.eval()
 
-    with torch.no_grad():
-        outputs = model(
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"],
-        )
+    # with torch.no_grad():
+    #     outputs = model(
+    #         input_ids=batch["input_ids"],
+    #         attention_mask=batch["attention_mask"],
+    #         labels=batch["labels"],
+    #     )
 
-    print("========== MODEL FORWARD DEBUG ==========")
-    print("rank:", os.environ.get("RANK"))
-    print("model device:", next(model.parameters()).device)
-    print("model dtype:", next(model.parameters()).dtype)
-    print("loss:", outputs.loss)
-    print("loss is nan:", torch.isnan(outputs.loss).item())
-    print("loss is inf:", torch.isinf(outputs.loss).item())
-    print("logits shape:", outputs.logits.shape)
-    print("==========================================")
+    # print("========== MODEL FORWARD DEBUG ==========")
+    # print("rank:", os.environ.get("RANK"))
+    # print("model device:", next(model.parameters()).device)
+    # print("model dtype:", next(model.parameters()).dtype)
+    # print("loss:", outputs.loss)
+    # print("loss is nan:", torch.isnan(outputs.loss).item())
+    # print("loss is inf:", torch.isinf(outputs.loss).item())
+    # print("logits shape:", outputs.logits.shape)
+    # print("==========================================")
 
 
 if __name__ == "__main__":
