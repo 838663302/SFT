@@ -120,11 +120,11 @@ def main():
         kwargs["logging_dir"] = str(config.LOG_DIR / "t5-json")
 
     # 按长度分组的参数：新版本用 train_sampling_strategy，旧版本用 group_by_length
-    if _USE_NEW_SAMPLING:
-        kwargs["train_sampling_strategy"] = "group_by_length"
-        kwargs["length_column_name"] = "length"
-    else:
-        kwargs["group_by_length"] = True
+    # if _USE_NEW_SAMPLING:
+    #     kwargs["train_sampling_strategy"] = "group_by_length"
+    #     kwargs["length_column_name"] = "length"
+    # else:
+    #     kwargs["group_by_length"] = True
 
     # 评估策略参数：新版本用 eval_strategy，旧版本用 evaluation_strategy
     if _USE_NEW_EVAL:
