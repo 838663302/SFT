@@ -14,6 +14,17 @@ from transformers import (
 from datasets import load_from_disk
 from process import get_dataset
 
+import os
+import torch
+
+print(
+    f"[DEBUG] "
+    f"RANK={os.environ.get('RANK')} "
+    f"LOCAL_RANK={os.environ.get('LOCAL_RANK')} "
+    f"WORLD_SIZE={os.environ.get('WORLD_SIZE')} "
+    f"CUDA={torch.cuda.current_device()}"
+)
+
 # 兼容不同 transformers 版本的参数差异（新版本约 >=4.46，旧版本更早）：
 #  - 按长度分组：新版本 train_sampling_strategy / 旧版本 group_by_length
 #  - 评估策略：新版本 eval_strategy / 旧版本 evaluation_strategy
@@ -161,11 +172,51 @@ def main():
         trainer_kwargs["tokenizer"] = tokenizer
     trainer = Seq2SeqTrainer(**trainer_kwargs)
 
+    train_dataloader = trainer.get_train_dataloader()
+
+    print("========== DATALOADER DEBUG ==========")
+    print("rank:", os.environ.get("RANK"))
+    print("dataloader length:", len(train_dataloader))
+
+    batch = next(iter(train_dataloader))
+
+    print("input_ids shape:", batch["input_ids"].shape)
+    print("labels shape:", batch["labels"].shape)
+
+    labels = batch["labels"]
+
+    print("labels:")
+    print(labels)
+
+    print(
+        "valid label count:",
+        (labels != -100).sum().item()
+    )
+
+    print(
+        "label min:",
+        labels[labels != -100].min().item()
+        if (labels != -100).any()
+        else "NONE"
+    )
+
+    print(
+        "label max:",
+        labels[labels != -100].max().item()
+        if (labels != -100).any()
+        else "NONE"
+    )
+
+    print("======================================")
+
     # 6. 训练并保存
-    trainer.train()
-    trainer.save_model(str(config.CHECKPOINT_DIR / "t5-json-final"))
-    tokenizer.save_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
+    # trainer.train()
+    # trainer.save_model(str(config.CHECKPOINT_DIR / "t5-json-final"))
+    # tokenizer.save_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
 
 
 if __name__ == "__main__":
     main()
+    # trainer = Seq2SeqTrainer(**trainer_kwargs)
+
+    
