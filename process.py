@@ -2,6 +2,7 @@
 import config
 
 import os
+import re
 
 from datasets import load_dataset, load_from_disk
 from transformers import AutoTokenizer
@@ -21,6 +22,21 @@ REMOVE_COLUMNS = [
 META_COLUMNS = ["topic", "title", "doc_style", "naming_convention", "tone"]
 
 
+def remove_newlines(example):
+    # 去掉所有字符串字段中的 \n 以及 \n 后面的空格（对应 fix_json.py 的逻辑）
+    for k, v in example.items():
+        if isinstance(v, str):
+            example[k] = re.sub(r'\n\s*', '', v)
+    return example
+
+
+def replace_quotes(example):
+    # 将 json 字段中的双引号替换为单引号（对应 fix_quotes.py 的逻辑）
+    if "json" in example:
+        example["json"] = example["json"].replace('"', "'")
+    return example
+
+
 def process():
     # 从本地 parquet 文件加载 train 和 validation 数据集
     dataset = load_dataset(
@@ -35,9 +51,19 @@ def process():
     for split in dataset:
         dataset[split] = dataset[split].remove_columns(META_COLUMNS)
 
+    # 数据清洗：去换行符及后续空格，json 字段双引号转单引号
+    for split in dataset:
+        dataset[split] = dataset[split].map(remove_newlines).map(replace_quotes)
+
     # 保存为 Arrow 格式（保存整个 DatasetDict，保留 train/validation 结构）
     # Kaggle 上 PROCESSED_DIR 会指向可写的 /kaggle/working/data/processed
     dataset.save_to_disk(str(config.PROCESSED_DIR))
+
+    # 同步导出为 JSON 格式（每个 split 一个文件，供人工查看）
+    for split in dataset:
+        json_path = config.PROCESSED_DIR / f"{split}.json"
+        dataset[split].to_json(str(json_path))
+        print(f"已保存 {split} 至 {json_path}，共 {len(dataset[split])} 条")
 
 def preprocess(batch, tokenizer):
     # batched=True 时 batch 的每个字段是 list，需要逐元素拼接
@@ -58,7 +84,7 @@ def preprocess(batch, tokenizer):
 
 def get_dataset(tokenizer, is_train=True, max_samples=None):
     split = "train" if is_train else "validation"
-    dataset = load_from_disk(str(config.PROCESSED_DIR / split))
+    dataset = load_from_disk(str(config.PROCESSED_DIR / split))[0:20]
 
     # 分词（batched=True，返回 input_ids / attention_mask / labels）。
     # 关键：map 的缓存/临时文件默认写到源数据所在目录，而 Kaggle 上源数据在只读的
@@ -73,7 +99,7 @@ def get_dataset(tokenizer, is_train=True, max_samples=None):
     if cache_file.exists():
         print(f"复用 map 缓存: {cache_file}")
         from datasets import Dataset
-        dataset = Dataset.from_file(str(cache_file))
+        dataset = Dataset.from_file(str(cache_file))[0:20]
     else:
         dataset = dataset.map(
             lambda x: preprocess(x, tokenizer),
@@ -91,5 +117,8 @@ def get_dataset(tokenizer, is_train=True, max_samples=None):
 
 
 if __name__ == "__main__":
-    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
-    get_dataset(tokenizer, is_train=False)
+    # tokenizer = AutoTokenizer.from_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
+    # ds = get_dataset(tokenizer, is_train=True, max_samples=10)
+    # print(tokenizer.decode(ds[0]['labels'], skip_special_tokens=False))
+    # print(ds[0]['labels'])
+    process()
