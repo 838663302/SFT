@@ -90,20 +90,20 @@ def preprocess(batch, tokenizer):
 TOKENIZER_VERSION = "flan_t5_python_dict_v1"
 
 
-def get_dataset(tokenizer, is_train=True, max_samples=None):
+def get_dataset(tokenizer, is_train=True, max_samples=20):
     # --------------------------------------------------------
     # 1. 加载原始 Dataset
     # --------------------------------------------------------
     split = "train" if is_train else "validation"
     dataset = load_from_disk(str(config.PROCESSED_DIR / split))
     # --------------------------------------------------------
-    # 2. 如果只是测试，先取少量数据
+    # 2. 默认只取前 20 条（调试/快速验证用）
+    #
+    # max_samples=20:
+    #     默认，只使用前 20 条
     #
     # max_samples=None:
     #     使用全部数据
-    #
-    # max_samples=20:
-    #     只使用前 20 条
     # --------------------------------------------------------
     if max_samples is not None:
         max_samples = min(max_samples, len(dataset))
