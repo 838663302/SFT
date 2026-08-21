@@ -86,7 +86,7 @@ def get_dataset(tokenizer, is_train=True, max_samples=None):
     if max_samples is not None:
         dataset = dataset.shuffle(seed=42).select(range(max_samples))
 
-    dataset.set_format("torch")
+    # dataset.set_format("torch")
     return dataset
 
 
