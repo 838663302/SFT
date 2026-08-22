@@ -14,6 +14,12 @@ CACHE_DIR = Path('/kaggle/working/.cache') if IS_KAGGLE else Path(__file__).pare
 # 回退到传统 HTTP 下载更稳定。必须在导入 huggingface_hub/transformers 前生效。
 os.environ["HF_HUB_DISABLE_XET"] = "1"
 
+# Windows 上缓存目录（如 Desktop 被 OneDrive/重定向）创建符号链接会失败，
+# 产生损坏的 ReparsePoint，导致加载时报
+# "WinError 448 ... untrusted mount point / WinError 183 ... already exists"。
+# 强制禁用符号链接，改为复制模式（代价是磁盘占用，不影响功能）。
+os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
+
 # 设置 Hugging Face 相关缓存（必须在导入 transformers/datasets 前生效）
 os.environ["HF_HOME"] = str(CACHE_DIR / "huggingface")
 os.environ["HF_DATASETS_CACHE"] = str(CACHE_DIR / "huggingface" / "datasets")

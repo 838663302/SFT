@@ -23,44 +23,19 @@ REMOVE_COLUMNS = [
 META_COLUMNS = ["topic", "title", "doc_style", "naming_convention", "tone"]
 
 
-def remove_newlines(example):
-    # 去掉所有字符串字段中的 \n 以及 \n 后面的空格（对应 fix_json.py 的逻辑）
-    for k, v in example.items():
-        if isinstance(v, str):
-            example[k] = re.sub(r"\n\s*", "", v)
-    return example
-
-
-def replace_quotes(example):
-    # 将 json 字段中的双引号替换为单引号（对应 fix_quotes.py 的逻辑）
-    if "json" in example:
-        example["json"] = example["json"].replace('"', "'")
-    return example
-
-
 def process():
-    # 从本地 parquet 文件加载 train 和 validation 数据集
-    dataset = load_dataset(
-        "parquet",
-        data_files={
-            "train": str(config.DATA_DIR / "train-00000-of-00001.parquet"),
-            "validation": str(config.DATA_DIR / "validation-00000-of-00001.parquet"),
-        },
+    datadict = load_dataset(
+        "json",
+        data_files=str(config.DATA_DIR / "generated_data.jsonl"),
     )
-    # 移除元数据字段（train 和 validation 统一处理）
-    for split in dataset:
-        dataset[split] = dataset[split].remove_columns(META_COLUMNS)
-    # 数据清洗：去换行符及后续空格，json 字段双引号转单引号
-    for split in dataset:
-        dataset[split] = dataset[split].map(remove_newlines).map(replace_quotes)
-    # 保存为 Arrow 格式（保存整个 DatasetDict，保留 train/validation 结构）
-    # Kaggle 上 PROCESSED_DIR 会指向可写的 /kaggle/working/data/processed
-    dataset.save_to_disk(str(config.PROCESSED_DIR))
-    # 同步导出为 JSON 格式（每个 split 一个文件，供人工查看）
-    for split in dataset:
-        json_path = config.PROCESSED_DIR / f"{split}.json"
-        dataset[split].to_json(str(json_path))
-        print(f"已保存 {split} 至 {json_path}，共 {len(dataset[split])} 条")
+    # 划分数据集：validation 占比 0.5
+    split = datadict["train"].train_test_split(test_size=0.5, seed=42)
+    # train_test_split 默认把验证集命名为 "test"，重命名为 "validation"
+    split["validation"] = split.pop("test")
+    # 保存为 Arrow 格式（地址直接用 config.PROCESSED_DIR）
+    split.save_to_disk(str(config.PROCESSED_DIR))
+    print("train:", len(split["train"]), "条")
+    print("validation:", len(split["validation"]), "条")
 
 
 def preprocess(batch, tokenizer):
@@ -87,7 +62,7 @@ def preprocess(batch, tokenizer):
 # 改这个版本号，避免错误复用旧的 Arrow cache。
 # ============================================================
 
-TOKENIZER_VERSION = "flan_t5_python_dict_v1"
+TOKENIZER_VERSION = "flan_t5_python_dict_v2_generated"
 
 
 def get_dataset(tokenizer, is_train=True, max_samples=20):
@@ -216,8 +191,13 @@ def get_dataset(tokenizer, is_train=True, max_samples=20):
 
 
 if __name__ == "__main__":
-    # tokenizer = AutoTokenizer.from_pretrained(str(config.CHECKPOINT_DIR / "t5-json-final"))
-    # ds = get_dataset(tokenizer, is_train=True, max_samples=10)
-    # print(tokenizer.decode(ds[0]['labels'], skip_special_tokens=False))
+    # 与 main.py 保持一致：必须先加入 {} 这两个 token，
+    # 否则 { / } 会被 tokenizer 映射成 <unk>，
+    # 导致 get_dataset 中的 <unk> 检查直接报错。
+    tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
+    num_added_tokens = tokenizer.add_tokens(["{", "}"])
+    print("新增 token 数:", num_added_tokens)
+    ds = get_dataset(tokenizer, is_train=True, max_samples=10)
+    print(tokenizer.decode(ds[0]['labels'], skip_special_tokens=False))
     # print(ds[0]['labels'])
-    process()
+    # process()

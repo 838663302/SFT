@@ -97,13 +97,13 @@ def main():
     rank = int(os.environ.get("RANK", "0"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
     world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    print(
-        f"[INIT] "
-        f"RANK={rank}, "
-        f"LOCAL_RANK={local_rank}, "
-        f"WORLD_SIZE={world_size}, "
-        f"CUDA={torch.cuda.current_device()}"
-    )
+    # print(
+    #     f"[INIT] "
+    #     f"RANK={rank}, "
+    #     f"LOCAL_RANK={local_rank}, "
+    #     f"WORLD_SIZE={world_size}, "
+    #     f"CUDA={torch.cuda.current_device()}"
+    # )
     # ========================================================
     # 1. Tokenizer
     # ========================================================
