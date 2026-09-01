@@ -25,6 +25,9 @@ if task == "spotting" and orig_w < spotting_upscale_threshold and orig_h < spott
 # ---------------------------
 
 # -------- Inference --------
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# GPU（如 T4）用 fp16（图灵卡不支持 bfloat16）；CPU 无 fp16 加速，用 fp32
+DTYPE = torch.float16 if DEVICE == "cuda" else torch.float32
 PROMPTS = {
     "ocr": "OCR:",
     "table": "Table Recognition:",
@@ -34,14 +37,13 @@ PROMPTS = {
     "seal": "Seal Recognition:",
 }
 
-# device_map="auto"：自动把模型层切分到所有可见 GPU（多卡模型并行），
-# 单卡时等价于整卡加载，无 GPU 时全部放 CPU。
-# 如需限制每卡显存，可加 max_memory={0:"10GiB", 1:"10GiB"}
+# 整模型单卡加载：1.6B @ fp16 仅占约 5~7GB，16GB 显卡足够。
+# 注意不要用 device_map="auto" 多卡切分本模型——transformers 内置的
+# PaddleOCR-VL 视觉塔在层被切分到不同卡时会触发设备不一致错误。
 model = AutoModelForImageTextToText.from_pretrained(
     model_path,
-    torch_dtype=torch.float16,  # T4 等图灵卡不支持 bfloat16，用 fp16（有 Tensor Core 加速）
-    device_map="auto",
-).eval()
+    torch_dtype=DTYPE,
+).to(DEVICE).eval()
 processor = AutoProcessor.from_pretrained(model_path)
 
 messages = [
