@@ -25,7 +25,6 @@ if task == "spotting" and orig_w < spotting_upscale_threshold and orig_h < spott
 # ---------------------------
 
 # -------- Inference --------
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PROMPTS = {
     "ocr": "OCR:",
     "table": "Table Recognition:",
@@ -35,7 +34,14 @@ PROMPTS = {
     "seal": "Seal Recognition:",
 }
 
-model = AutoModelForImageTextToText.from_pretrained(model_path, torch_dtype=torch.bfloat16).to(DEVICE).eval()
+# device_map="auto"：自动把模型层切分到所有可见 GPU（多卡模型并行），
+# 单卡时等价于整卡加载，无 GPU 时全部放 CPU。
+# 如需限制每卡显存，可加 max_memory={0:"10GiB", 1:"10GiB"}
+model = AutoModelForImageTextToText.from_pretrained(
+    model_path,
+    torch_dtype=torch.float16,  # T4 等图灵卡不支持 bfloat16，用 fp16（有 Tensor Core 加速）
+    device_map="auto",
+).eval()
 processor = AutoProcessor.from_pretrained(model_path)
 
 messages = [
